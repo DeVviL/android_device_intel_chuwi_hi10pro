@@ -38,3 +38,6 @@ BOARD_USERDATAIMAGE_PARTITION_SIZE := 27783069696
 
 # Properties
 TARGET_SYSTEM_PROP += $(DEVICE_PATH)/system.prop
+
+# Block based ota
+BLOCK_BASED_OTA := false
