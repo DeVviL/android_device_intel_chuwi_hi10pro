@@ -30,3 +30,7 @@ PRODUCT_COPY_FILES += \
 # Prebuilt
 PRODUCT_COPY_FILES += \
     $(call find-copy-subdir-files,*,device/intel/chuwi_hi10pro/prebuilt/system,system)
+
+#Copy Prebuilt Kernel
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/kernel:kernel
