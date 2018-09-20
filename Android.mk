@@ -16,6 +16,6 @@
 
 LOCAL_PATH := $(call my-dir)
 
-ifeq ($(TARGET_DEVICE),chuwi_vi10plus)
+ifeq ($(TARGET_DEVICE),chuwi_hi10pro)
 include $(call all-makefiles-under,$(LOCAL_PATH))
 endif

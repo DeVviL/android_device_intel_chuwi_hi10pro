@@ -1,7 +1,7 @@
 #!/bin/bash
 
 export VENDOR=intel
-export DEVICE=chuwi_vi10plus
+export DEVICE=chuwi_hi10pro
 export COMMON_DEVICE=cherrytrail-common
 export TARGET_BOARD_PLATFORM=gmin
 

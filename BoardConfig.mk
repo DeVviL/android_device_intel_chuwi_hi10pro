@@ -17,10 +17,10 @@
 # Inherit from common
 -include device/intel/cherrytrail-common/BoardConfigCommon.mk
 
-DEVICE_PATH := device/intel/chuwi_vi10plus
+DEVICE_PATH := device/intel/chuwi_hi10pro
 
 # Assert
-TARGET_OTA_ASSERT_DEVICE := cht_cr_mrd_w,chuwi_vi10plus
+TARGET_OTA_ASSERT_DEVICE := cht_cr_mrd_w,chuwi_hi10pro
 
 # Kernel
 BOARD_KERNEL_IMAGE_NAME := bzImage
