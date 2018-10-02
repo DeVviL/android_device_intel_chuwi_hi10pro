@@ -1,0 +1,23 @@
+From dd4b10c738f773f749a267ae3b409c831d9a570f Mon Sep 17 00:00:00 2001
+From: Konsta <konsta09@gmail.com>
+Date: Thu, 27 Oct 2016 20:28:39 +0300
+Subject: [PATCH] intel: allow sys_rawio for coreu
+
+Change-Id: I6bed0f16139191fef964789e2f27874d174f2612
+---
+ domain.te | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/domain.te b/domain.te
+index bfb5f05c..f8e6f7bc 100644
+--- a/domain.te
++++ b/domain.te
+@@ -182,7 +182,7 @@ neverallow { domain -kernel -init -recovery -ueventd -watchdogd -healthd -vold -
+ 
+ attribute rmt_placeholder;
+ # Limit raw I/O to these whitelisted domains.
+-neverallow { domain -kernel -init -recovery -ueventd -watchdogd -healthd -vold -uncrypt -tee -rmt_placeholder } self:capability sys_rawio;
++neverallow { domain -kernel -init -recovery -ueventd -watchdogd -healthd -vold -uncrypt -tee -rmt_placeholder -coreu } self:capability sys_rawio;
+ 
+ # No process can map low memory (< CONFIG_LSM_MMAP_MIN_ADDR).
+ neverallow domain self:memprotect mmap_zero;

@@ -1,0 +1,310 @@
+From 8dc5fd69418d9ee137937d1db4e531e17fade70f Mon Sep 17 00:00:00 2001
+From: Mark Salyzyn <salyzyn@google.com>
+Date: Tue, 23 Aug 2016 10:23:36 -0700
+Subject: [PATCH 1/2] liblog: add __android_log_close()
+
+CYNGNOS-3303
+Bug: 30963384
+
+(cherry picked from commit df7a4c6bae5f85532d79a93b7d9197a2aab17825)
+
+Change-Id: I2255486e84dd55af0f4e7fbbfb616c2deb1765d0
+(cherry picked from commit 2d149691552676968b7de337f543463b920578b0)
+---
+ include/android/log.h        |  5 +++++
+ liblog/logd_write.c          | 39 ++++++++++++++++++++++++++++++++++++
+ liblog/logd_write_kern.c     | 35 ++++++++++++++++++++++++++++++++
+ liblog/tests/liblog_test.cpp | 10 ++++++++-
+ 4 files changed, 88 insertions(+), 1 deletion(-)
+
+diff --git a/include/android/log.h b/include/android/log.h
+index 1c171b7bf2..391c826d5c 100644
+--- a/include/android/log.h
++++ b/include/android/log.h
+@@ -88,6 +88,11 @@ typedef enum android_LogPriority {
+     ANDROID_LOG_SILENT,     /* only for SetMinPriority(); must be last */
+ } android_LogPriority;
+ 
++/*
++ * Release any logger resources (a new log write will immediately re-acquire)
++ */
++void __android_log_close();
++
+ /*
+  * Send a simple string to the log.
+  */
+diff --git a/liblog/logd_write.c b/liblog/logd_write.c
+index 4b9c7c7f61..b8fd9d5861 100644
+--- a/liblog/logd_write.c
++++ b/liblog/logd_write.c
+@@ -377,6 +377,45 @@ const char *android_log_id_to_name(log_id_t log_id)
+ }
+ #endif
+ 
++/*
++ * Release any logger resources. A new log write will immediately re-acquire.
++ */
++void __android_log_close()
++{
++#if FAKE_LOG_DEVICE
++    int i;
++#endif
++
++#ifdef HAVE_PTHREADS
++    pthread_mutex_lock(&log_init_lock);
++#endif
++
++    write_to_log = __write_to_log_init;
++
++    /*
++     * Threads that are actively writing at this point are not held back
++     * by a lock and are at risk of dropping the messages with a return code
++     * -EBADF. Prefer to return error code than add the overhead of a lock to
++     * each log writing call to guarantee delivery. In addition, anyone
++     * calling this is doing so to release the logging resources and shut down,
++     * for them to do so with outstanding log requests in other threads is a
++     * disengenuous use of this function.
++     */
++#if FAKE_LOG_DEVICE
++    for (i = 0; i < LOG_ID_MAX; i++) {
++        fakeLogClose(log_fds[i]);
++        log_fds[i] = -1;
++    }
++#else
++    close(logd_fd);
++    logd_fd = -1;
++#endif
++
++#ifdef HAVE_PTHREADS
++    pthread_mutex_unlock(&log_init_lock);
++#endif
++}
++
+ static int __write_to_log_init(log_id_t log_id, struct iovec *vec, size_t nr)
+ {
+ #ifdef HAVE_PTHREADS
+diff --git a/liblog/logd_write_kern.c b/liblog/logd_write_kern.c
+index a7bd61c17a..0d0bd2f115 100644
+--- a/liblog/logd_write_kern.c
++++ b/liblog/logd_write_kern.c
+@@ -212,6 +212,41 @@ static int __write_to_log_kernel(log_id_t log_id, struct iovec *vec, size_t nr)
+     return ret;
+ }
+ 
++/*
++ * Release any logger resources. A new log write will immediately re-acquire.
++ */
++void __android_log_close()
++{
++#ifdef HAVE_PTHREADS
++    pthread_mutex_lock(&log_init_lock);
++#endif
++
++    write_to_log = __write_to_log_init;
++
++    /*
++     * Threads that are actively writing at this point are not held back
++     * by a lock and are at risk of dropping the messages with a return code
++     * -EBADF. Prefer to return error code than add the overhead of a lock to
++     * each log writing call to guarantee delivery. In addition, anyone
++     * calling this is doing so to release the logging resources and shut down,
++     * for them to do so with outstanding log requests in other threads is a
++     * disengenuous use of this function.
++     */
++
++    log_close(log_fds[LOG_ID_MAIN]);
++    log_fds[LOG_ID_MAIN] = -1;
++    log_close(log_fds[LOG_ID_RADIO]);
++    log_fds[LOG_ID_RADIO] = -1;
++    log_close(log_fds[LOG_ID_EVENTS]);
++    log_fds[LOG_ID_EVENTS] = -1;
++    log_close(log_fds[LOG_ID_SYSTEM]);
++    log_fds[LOG_ID_SYSTEM] = -1;
++
++#ifdef HAVE_PTHREADS
++    pthread_mutex_unlock(&log_init_lock);
++#endif
++}
++
+ static int __write_to_log_init(log_id_t log_id, struct iovec *vec, size_t nr)
+ {
+ #ifdef HAVE_PTHREADS
+diff --git a/liblog/tests/liblog_test.cpp b/liblog/tests/liblog_test.cpp
+index b43a90295d..61e226e96e 100644
+--- a/liblog/tests/liblog_test.cpp
++++ b/liblog/tests/liblog_test.cpp
+@@ -124,12 +124,17 @@ TEST(liblog, __android_log_btwrite__android_logger_list_read) {
+     ASSERT_TRUE(NULL != (logger_list = android_logger_list_open(
+         LOG_ID_EVENTS, O_RDONLY | O_NDELAY, 1000, pid)));
+ 
++    // Check that we can close and reopen the logger
+     log_time ts(CLOCK_MONOTONIC);
+-
+     ASSERT_LT(0, __android_log_btwrite(0, EVENT_TYPE_LONG, &ts, sizeof(ts)));
++    __android_log_close();
++
++    log_time ts1(CLOCK_MONOTONIC);
++    ASSERT_LT(0, __android_log_btwrite(0, EVENT_TYPE_LONG, &ts1, sizeof(ts1)));
+     usleep(1000000);
+ 
+     int count = 0;
++    int second_count = 0;
+ 
+     for (;;) {
+         log_msg log_msg;
+@@ -153,10 +158,13 @@ TEST(liblog, __android_log_btwrite__android_logger_list_read) {
+         log_time tx(eventData + 4 + 1);
+         if (ts == tx) {
+             ++count;
++        } else if (ts1 == tx) {
++            ++second_count;
+         }
+     }
+ 
+     EXPECT_EQ(1, count);
++    EXPECT_EQ(1, second_count);
+ 
+     android_logger_list_close(logger_list);
+ }
+
+From 5479772c09b945bef7ea75efce98c2be98f30258 Mon Sep 17 00:00:00 2001
+From: Narayan Kamath <narayan@google.com>
+Date: Fri, 14 Oct 2016 13:56:37 -0700
+Subject: [PATCH 2/2] libzipfile: add additional validity checks.
+
+- Make sure the start and end of the data for a given entry are
+  within the allocated buffer.
+- Make sure all central directory entries start and end within the
+  central directory buffer.
+- Reject zip file entries that have no filenames.
+
+CYNGNOS-3303
+bug: 30916186
+test: test_zipfile with known bad zip files.
+Change-Id: Ibf3f6469e60c85ec1608f5ce613d40867d2d09b7
+---
+ libzipfile/centraldir.c   | 56 +++++++++++++++++++++++++++++++++++++--
+ libzipfile/test_zipfile.c |  1 -
+ 2 files changed, 54 insertions(+), 3 deletions(-)
+
+diff --git a/libzipfile/centraldir.c b/libzipfile/centraldir.c
+index 69cf47a190..9e5e710938 100644
+--- a/libzipfile/centraldir.c
++++ b/libzipfile/centraldir.c
+@@ -62,11 +62,16 @@ read_central_dir_values(Zipfile* file, const unsigned char* buf, int len)
+     return 0;
+ }
+ 
++static const int kCompressionStored = 0x0;
++static const int kCompressionDeflate = 0x8;
++
+ static int
+ read_central_directory_entry(Zipfile* file, Zipentry* entry,
+                 const unsigned char** buf, ssize_t* len)
+ {
+     const unsigned char* p;
++    size_t remaining;
++    const unsigned char* bufLimit;
+ 
+     unsigned short  extraFieldLength;
+     unsigned short  fileCommentLength;
+@@ -74,6 +79,8 @@ read_central_directory_entry(Zipfile* file, Zipentry* entry,
+     unsigned int dataOffset;
+ 
+     p = *buf;
++    remaining = *len;
++    bufLimit = file->buf + file->bufsize;
+ 
+     if (*len < ENTRY_LEN) {
+         fprintf(stderr, "cde entry not large enough\n");
+@@ -94,31 +101,76 @@ read_central_directory_entry(Zipfile* file, Zipentry* entry,
+     localHeaderRelOffset = read_le_int(&p[0x2a]);
+ 
+     p += ENTRY_LEN;
++    remaining -= ENTRY_LEN;
+ 
+     // filename
+     if (entry->fileNameLength != 0) {
++        if (entry->fileNameLength > remaining) {
++            fprintf(stderr, "cde entry not large enough for file name.\n");
++            return 1;
++        }
++
+         entry->fileName = p;
+     } else {
+-        entry->fileName = NULL;
++        fprintf(stderr, "cde entry does not contain a file name.\n");
++        return 1;
+     }
+     p += entry->fileNameLength;
++    remaining -= entry->fileNameLength;
+ 
+-    // extra field
++    // extra field, if any
++    if (extraFieldLength > remaining) {
++        fprintf(stderr, "cde entry not large enough for extra field.\n");
++        return 1;
++    }
+     p += extraFieldLength;
++    remaining -= extraFieldLength;
+ 
+     // comment, if any
++    if (fileCommentLength > remaining) {
++        fprintf(stderr, "cde entry not large enough for file comment.\n");
++        return 1;
++    }
+     p += fileCommentLength;
++    remaining -= fileCommentLength;
+ 
+     *buf = p;
++    *len = remaining;
+ 
+     // the size of the extraField in the central dir is how much data there is,
+     // but the one in the local file header also contains some padding.
+     p = file->buf + localHeaderRelOffset;
++    if (p >= bufLimit) {
++      fprintf(stderr, "Invalid local header offset for entry.\n");
++      return 1;
++    }
++
+     extraFieldLength = read_le_short(&p[0x1c]);
+ 
+     dataOffset = localHeaderRelOffset + LFH_SIZE
+         + entry->fileNameLength + extraFieldLength;
+     entry->data = file->buf + dataOffset;
++
++    // Sanity check: make sure that the start of the entry data is within
++    // our allocated buffer.
++    if ((entry->data < file->buf) || (entry->data >= bufLimit)) {
++      fprintf(stderr, "Invalid data offset for entry.\n");
++      return 1;
++    }
++
++    // Sanity check: make sure that the end of the entry data is within
++    // our allocated buffer. We need to look at the uncompressedSize for
++    // stored entries and the compressed size for deflated entries.
++    if ((entry->compressionMethod == kCompressionStored) &&
++        (entry->uncompressedSize > (unsigned int) (bufLimit - entry->data))) {
++      fprintf(stderr, "Invalid uncompressed size for stored entry.\n");
++      return 1;
++    }
++    if ((entry->compressionMethod == kCompressionDeflate) &&
++        (entry->compressedSize > (unsigned int) (bufLimit - entry->data))) {
++      fprintf(stderr, "Invalid uncompressed size for deflated entry.\n");
++      return 1;
++    }
+ #if 0
+     printf("file->buf=%p entry->data=%p dataOffset=%x localHeaderRelOffset=%d "
+            "entry->fileNameLength=%d extraFieldLength=%d\n",
+diff --git a/libzipfile/test_zipfile.c b/libzipfile/test_zipfile.c
+index 1aaa9132d3..a2f6bc7e59 100644
+--- a/libzipfile/test_zipfile.c
++++ b/libzipfile/test_zipfile.c
+@@ -75,7 +75,6 @@ main(int argc, char** argv)
+             unsize = get_zipentry_size(entry);
+             size = unsize * 1.001;
+             scratch = malloc(size);
+-            printf("scratch=%p\n", scratch);
+             err = decompress_zipentry(entry, scratch, size);
+             if (err != 0) {
+                 fprintf(stderr, "error decompressing file\n");

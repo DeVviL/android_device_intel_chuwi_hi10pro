@@ -1,0 +1,43 @@
+From 237e613d04f9b950ee22fc7cfb6def7488dc7ca8 Mon Sep 17 00:00:00 2001
+From: Konsta <konsta09@gmail.com>
+Date: Mon, 26 Dec 2016 22:53:47 +0200
+Subject: [PATCH] don't strip kernel modules on cherrytrail kernel build
+
+* Cherrytrail kernel is built with CONFIG_MODULE_SIG for improved
+  security. Stripping kernel modules will break the module signature
+  and kernel modules fail to load.
+
+Change-Id: Ic026966a2d8df4960ff032c9484aa14dab28d58f
+---
+ core/tasks/kernel.mk | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/core/tasks/kernel.mk b/core/tasks/kernel.mk
+index 4283dbbb929..cedd1f785b5 100644
+--- a/core/tasks/kernel.mk
++++ b/core/tasks/kernel.mk
+@@ -205,6 +205,16 @@ endif
+ KERNEL_CROSS_COMPILE := CROSS_COMPILE="$(ccache) $(KERNEL_TOOLCHAIN_PATH)"
+ ccache =
+ 
++ifeq ($(TARGET_KERNEL_CROSS_COMPILE_PREFIX),x86_64-poky-linux-)
++define mv-modules
++    mdpath=`find $(KERNEL_MODULES_OUT) -type f -name modules.order`;\
++    if [ "$$mdpath" != "" ];then\
++        mpath=`dirname $$mdpath`;\
++        ko=`find $$mpath/kernel -type f -name *.ko`;\
++        for i in $$ko; do mv $$i $(KERNEL_MODULES_OUT)/; done;\
++    fi
++endef
++else
+ define mv-modules
+     mdpath=`find $(KERNEL_MODULES_OUT) -type f -name modules.order`;\
+     if [ "$$mdpath" != "" ];then\
+@@ -214,6 +224,7 @@ define mv-modules
+         mv $$i $(KERNEL_MODULES_OUT)/; done;\
+     fi
+ endef
++endif
+ 
+ define clean-module-folder
+     mdpath=`find $(KERNEL_MODULES_OUT) -type f -name modules.order`;\

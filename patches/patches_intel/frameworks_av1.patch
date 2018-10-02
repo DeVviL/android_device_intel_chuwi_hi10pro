@@ -1,0 +1,32 @@
+From abd739de76a1cf136c99f21d8fcba558d046ba88 Mon Sep 17 00:00:00 2001
+From: Konsta <konsta09@gmail.com>
+Date: Sun, 29 Jan 2017 09:04:03 +0200
+Subject: [PATCH] don't use deep_buffer as default output for music stream on
+ non-qcom devices
+
+* Causes ~1000ms audio lag with some games on Intel Cherry Trail
+  devices. Properly ifdef bdd042dd8a1abd8363c7b75157a9d72732e7b273
+  for QCOM devices.
+* Credits to zltnngy for debugging and fixing this issue.
+
+Change-Id: Ic4425f4e6df291704f94adfab2b9f1534ce4631d
+---
+ services/audiopolicy/AudioPolicyManager.cpp | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/services/audiopolicy/AudioPolicyManager.cpp b/services/audiopolicy/AudioPolicyManager.cpp
+index 50d4cc26409..4bfb58f86d9 100644
+--- a/services/audiopolicy/AudioPolicyManager.cpp
++++ b/services/audiopolicy/AudioPolicyManager.cpp
+@@ -1640,9 +1640,11 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
+     // only allow deep buffering for music stream type
+     if (stream != AUDIO_STREAM_MUSIC) {
+         flags = (audio_output_flags_t)(flags &~AUDIO_OUTPUT_FLAG_DEEP_BUFFER);
++#ifdef QCOM_HARDWARE
+     } else if (flags == AUDIO_OUTPUT_FLAG_NONE) {
+         //use DEEP_BUFFER as default output for music stream type
+         flags = AUDIO_OUTPUT_FLAG_DEEP_BUFFER;
++#endif
+     }
+ 
+     sp<IOProfile> profile;
