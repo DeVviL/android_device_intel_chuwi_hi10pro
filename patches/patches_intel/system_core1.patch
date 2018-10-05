@@ -1,0 +1,130 @@
+From 085936a83072c621d39206445a908409bfacd574 Mon Sep 17 00:00:00 2001
+From: Jianxun Zhang <jianxun.zhang@intel.com>
+Date: Mon, 20 Oct 2014 10:30:10 -0700
+Subject: [PATCH] Turn a shutdown request into reboot when charger is
+ connected.
+
+Not all of the PMIC support to boot device automatically into
+charge-only mode after shutdown when charger is connected.
+However, we have to workaround this issue that should be done
+in HW/PMIC in system/core project:
+() There is no "reboot" HAL for vendor-specific change. Reboot
+and shutdown are based on syscall provided by Linux kernel.
+() A change in upper layers in Java will potentially miss some
+corner cases since any permitted pieces in system is capable to
+set the sys.powerctl property to shutdown device.
+() The healthd is the "sweet spot" where we can get connection
+of charger(s) between kernel and Android framework.
+() The init is the "sweet spot" where we can play this trick
+and limit it in Android mode in the whole reboot/shutdown
+execution flow. Some native non-android daemons that calls
+reboot API at a lower level won't be effected.
+() Putting the above work in kernel cannot help much:
+  - We will have to hack the standard reboot routines in kernel.
+  - It is also difficult to differentiate shutdown requests
+    from user space.
+  - Acquire charger(s) status in reboot sub-system will actually
+    be a re-implementation of what healthd in user space does.
+In a short, this change tries to resolve the issue in a least
+destructive way.
+Two properties are invented. One is to enable/disable the
+overriding. Another is connection status of charger(s).
+
+Change-Id: Ie96fb58ecb9a4e8ffe7e73e590483b5323e40b74
+Signed-off-by: Jianxun Zhang <jianxun.zhang@intel.com>
+---
+ healthd/BatteryMonitor.cpp | 19 +++++++++++++++++--
+ init/builtins.c            | 14 ++++++++++++++
+ 2 files changed, 31 insertions(+), 2 deletions(-)
+
+diff --git a/healthd/BatteryMonitor.cpp b/healthd/BatteryMonitor.cpp
+index 66c4e8e4ae..32110bb371 100644
+--- a/healthd/BatteryMonitor.cpp
++++ b/healthd/BatteryMonitor.cpp
+@@ -38,6 +38,7 @@
+ #define POWER_SUPPLY_SYSFS_PATH "/sys/class/" POWER_SUPPLY_SUBSYSTEM
+ #define FAKE_BATTERY_CAPACITY 42
+ #define FAKE_BATTERY_TEMPERATURE 424
++#define CHARGER_CONNECTION_PROP "sys.charger.connected"
+ 
+ namespace android {
+ 
+@@ -55,6 +56,16 @@ static int mapSysfsString(const char* str,
+     return -1;
+ }
+ 
++static void updateChargerStatusProp (bool status) {
++    const char* charger_status;
++    char prop[PROP_VALUE_MAX] = {0};
++    charger_status = status ? "1" : "";
++
++    if (property_get(CHARGER_CONNECTION_PROP, prop, NULL) <= 0
++            || strcmp(prop, charger_status))
++        property_set(CHARGER_CONNECTION_PROP, charger_status);
++}
++
+ int BatteryMonitor::getBatteryStatus(const char* status) {
+     int ret;
+     struct sysfsStringEnumMap batteryStatusMap[] = {
+@@ -180,6 +191,7 @@ int BatteryMonitor::getIntField(const String8& path) {
+ 
+ bool BatteryMonitor::update(void) {
+     bool logthis;
++    bool chargerConnected;
+ 
+     props.chargerAcOnline = false;
+     props.chargerUsbOnline = false;
+@@ -357,9 +369,12 @@ bool BatteryMonitor::update(void) {
+                      props.chargerDockAcOnline ? "d" : "");
+     }
+ 
+-    healthd_mode_ops->battery_update(&props);
+-    return props.chargerAcOnline | props.chargerUsbOnline |
++    chargerConnected = props.chargerAcOnline | props.chargerUsbOnline |
+             props.chargerWirelessOnline | props.chargerDockAcOnline;
++    updateChargerStatusProp(chargerConnected);
++
++    healthd_mode_ops->battery_update(&props);
++    return chargerConnected;
+ }
+ 
+ status_t BatteryMonitor::getProperty(int id, struct BatteryProperty *val) {
+diff --git a/init/builtins.c b/init/builtins.c
+index d4b3f99c27..ac953ad9c4 100644
+--- a/init/builtins.c
++++ b/init/builtins.c
+@@ -743,6 +743,7 @@ int do_restart(int nargs, char **args)
+ int do_powerctl(int nargs, char **args)
+ {
+     char command[PROP_VALUE_MAX];
++    char override[PROP_VALUE_MAX] = {0};
+     int res;
+     int len = 0;
+     int cmd = 0;
+@@ -755,6 +756,18 @@ int do_powerctl(int nargs, char **args)
+     }
+ 
+     if (strncmp(command, "shutdown", 8) == 0) {
++        if (property_get("sys.powerctl.no.shutdown", override)
++                > 0 && !strcmp(override, "1")) {
++            if (property_get("sys.charger.connected", override)
++                    > 0 && !strcmp(override, "1")) {
++                cmd = ANDROID_RB_RESTART2;
++                /* Assume bootloader accepts a reboot target "charging"
++                 * to enter charge-only mode in this case.
++                 */
++                reboot_target = "charging";
++                goto out;
++            }
++        }
+         cmd = ANDROID_RB_POWEROFF;
+         len = 8;
+     } else if (strncmp(command, "reboot", 6) == 0) {
+@@ -774,6 +787,7 @@ int do_powerctl(int nargs, char **args)
+         return -EINVAL;
+     }
+ 
++out:
+     return android_reboot(cmd, 0, reboot_target);
+ }
+ 

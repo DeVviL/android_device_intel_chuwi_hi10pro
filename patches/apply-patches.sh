@@ -3,9 +3,6 @@ cd ../../../..
 cd bionic
 patch -p1 < ../device/intel/chuwi_hi10pro/patches/patches_intel/bionic.patch
 cd ..
-cd build
-patch -p1 < ../device/intel/chuwi_hi10pro/patches/patches_intel/build.patch
-cd ..
 cd external/bluetooth/bluedroid
 patch -p1 < ../../../device/intel/chuwi_hi10pro/patches/patches_intel/external_bluetooth_bluedroid.patch
 cd ../../..
@@ -18,6 +15,8 @@ patch -p1 < ../../device/intel/chuwi_hi10pro/patches/patches_intel/frameworks_av
 cd ../..
 cd system/core
 patch -p1 < ../../device/intel/chuwi_hi10pro/patches/patches_intel/system_core.patch
+patch -p1 < ../../device/intel/chuwi_hi10pro/patches/patches_intel/system_core1.patch
+patch -p1 < ../../device/intel/chuwi_hi10pro/patches/patches_intel/system_core2.patch
 cd ../..
 cd system/netd
 patch -p1 < ../../device/intel/chuwi_hi10pro/patches/patches_intel/system_netd.patch
