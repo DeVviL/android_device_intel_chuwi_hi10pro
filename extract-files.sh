@@ -18,7 +18,7 @@
 set -e
 
 # Required!
-export DEVICE=chuwi_vi10plus
+export DEVICE=chuwi_hi10pro
 export DEVICE_COMMON=cherrytrail-common
 export VENDOR=intel
 
